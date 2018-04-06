@@ -3,7 +3,7 @@
 // license that can be found in the Go project's LICENSE file.
 //
 // This file was lifted wholesale from the Go standard library with
-// very minor tweaks by JT Olds, 2018
+// very minor tweaks by Storj Labs, Inc., 2018
 
 package ranger
 
