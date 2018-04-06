@@ -1,3 +1,6 @@
+// Copyright (C) 2018 JT Olds
+// See LICENSE for copying information.
+
 package main
 
 import (
@@ -13,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jtolds/eestream"
+	"github.com/jtolds/eestream/ranger"
 	"github.com/vivint/infectious"
 )
 
@@ -52,7 +56,7 @@ func Main() error {
 	if err != nil {
 		return err
 	}
-	rrs := map[int]eestream.RangeReader{}
+	rrs := map[int]ranger.Ranger{}
 	for _, piece := range pieces {
 		piecenum, err := strconv.Atoi(strings.TrimSuffix(piece.Name(), ".piece"))
 		if err != nil {
@@ -67,7 +71,7 @@ func Main() error {
 		if err != nil {
 			return err
 		}
-		rrs[piecenum] = eestream.ReaderAtRangeReader(fh, fs.Size())
+		rrs[piecenum] = ranger.ReaderAtRanger(fh, fs.Size())
 	}
 	rr, err := eestream.Decode(rrs, es)
 	if err != nil {
@@ -84,6 +88,6 @@ func Main() error {
 
 	return http.ListenAndServe(*addr, http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
-			eestream.ServeContent(w, r, flag.Arg(0), time.Time{}, rr)
+			ranger.ServeContent(w, r, flag.Arg(0), time.Time{}, rr)
 		}))
 }

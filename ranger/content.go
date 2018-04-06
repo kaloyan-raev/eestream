@@ -1,4 +1,11 @@
-package eestream
+// Copyright 2009 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the Go project's LICENSE file.
+//
+// This file was lifted wholesale from the Go standard library with
+// very minor tweaks by JT Olds, 2018
+
+package ranger
 
 import (
 	"errors"
@@ -14,8 +21,10 @@ import (
 	"time"
 )
 
+// ServeContent is the Go standard library's http.ServeContent but modified to
+// work with Rangers.
 func ServeContent(w http.ResponseWriter, r *http.Request, name string,
-	modtime time.Time, content RangeReader) {
+	modtime time.Time, content Ranger) {
 	setLastModified(w, modtime)
 	done, rangeReq := checkPreconditions(w, r, modtime)
 	if done {

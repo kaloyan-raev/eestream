@@ -1,14 +1,21 @@
+// Copyright (C) 2018 JT Olds
+// See LICENSE for copying information.
+
 package eestream
 
 import (
 	"bytes"
 	"io"
 	"io/ioutil"
+
+	"github.com/jtolds/eestream/ranger"
 )
 
+// A Transformer is a data transformation that may change the size of the blocks
+// of data it operates on in a deterministic fashion.
 type Transformer interface {
-	InBlockSize() int
-	OutBlockSize() int
+	InBlockSize() int  // The block size prior to transformation
+	OutBlockSize() int // The block size after transformation
 	Transform(out, in []byte, blockNum int64) ([]byte, error)
 }
 
@@ -20,6 +27,8 @@ type transformedReader struct {
 	outbuf   []byte
 }
 
+// TransformReader applies a Transformer to a Reader. startingBlockNum should
+// probably be 0 unless you know you're already starting at a block offset.
 func TransformReader(r io.Reader, t Transformer,
 	startingBlockNum int64) io.Reader {
 	return &transformedReader{
@@ -50,20 +59,21 @@ func (t *transformedReader) Read(p []byte) (n int, err error) {
 	return n, nil
 }
 
-type transformedRangeReader struct {
-	rr RangeReader
+type transformedRanger struct {
+	rr ranger.Ranger
 	t  Transformer
 }
 
-func Transform(rr RangeReader, t Transformer) (RangeReader, error) {
+// Transform will apply a Transformer to a Ranger.
+func Transform(rr ranger.Ranger, t Transformer) (ranger.Ranger, error) {
 	if rr.Size()%int64(t.InBlockSize()) != 0 {
 		return nil, Error.New("invalid transformer and range reader combination." +
 			"the range reader size is not a multiple of the block size")
 	}
-	return &transformedRangeReader{rr: rr, t: t}, nil
+	return &transformedRanger{rr: rr, t: t}, nil
 }
 
-func (t *transformedRangeReader) Size() int64 {
+func (t *transformedRanger) Size() int64 {
 	blocks := t.rr.Size() / int64(t.t.InBlockSize())
 	return blocks * int64(t.t.OutBlockSize())
 }
@@ -81,7 +91,7 @@ func calcEncompassingBlocks(offset, length int64, blockSize int) (
 	return firstBlock, 1 + lastBlock - firstBlock
 }
 
-func (t *transformedRangeReader) Range(offset, length int64) io.Reader {
+func (t *transformedRanger) Range(offset, length int64) io.Reader {
 	firstBlock, blockCount := calcEncompassingBlocks(
 		offset, length, t.t.OutBlockSize())
 	r := TransformReader(
@@ -94,7 +104,7 @@ func (t *transformedRangeReader) Range(offset, length int64) io.Reader {
 		if err == io.EOF {
 			return bytes.NewReader(nil)
 		}
-		return FatalReader(Error.Wrap(err))
+		return ranger.FatalReader(Error.Wrap(err))
 	}
 	return io.LimitReader(r, length)
 }

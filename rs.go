@@ -1,3 +1,6 @@
+// Copyright (C) 2018 JT Olds
+// See LICENSE for copying information.
+
 package eestream
 
 import (
@@ -9,6 +12,7 @@ type rsScheme struct {
 	blockSize int
 }
 
+// NewRSScheme returns a Reed-Solomon-based ErasureScheme.
 func NewRSScheme(fc *infectious.FEC, blockSize int) ErasureScheme {
 	return &rsScheme{fc: fc, blockSize: blockSize}
 }

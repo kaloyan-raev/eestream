@@ -1,22 +1,26 @@
-package eestream
+// Copyright (C) 2018 JT Olds
+// See LICENSE for copying information.
+
+package ranger
 
 import (
 	"io"
 )
 
-type readerAtRangeReader struct {
+type readerAtRanger struct {
 	r    io.ReaderAt
 	size int64
 }
 
-func ReaderAtRangeReader(r io.ReaderAt, size int64) RangeReader {
-	return &readerAtRangeReader{
+// ReaderAtRanger converts a ReaderAt with a given size to a Ranger
+func ReaderAtRanger(r io.ReaderAt, size int64) Ranger {
+	return &readerAtRanger{
 		r:    r,
 		size: size,
 	}
 }
 
-func (r *readerAtRangeReader) Size() int64 {
+func (r *readerAtRanger) Size() int64 {
 	return r.size
 }
 
@@ -25,7 +29,7 @@ type readerAtReader struct {
 	offset, length int64
 }
 
-func (r *readerAtRangeReader) Range(offset, length int64) io.Reader {
+func (r *readerAtRanger) Range(offset, length int64) io.Reader {
 	if offset < 0 {
 		return FatalReader(Error.New("negative offset"))
 	}

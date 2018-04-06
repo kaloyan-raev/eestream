@@ -1,10 +1,10 @@
 // Copyright (C) 2018 JT Olds
 // See LICENSE for copying information.
 
-package eestream
+package ranger
 
 import (
 	"github.com/spacemonkeygo/errors"
 )
 
-var Error = errors.NewClass("eestream error")
+var Error = errors.NewClass("ranger error")

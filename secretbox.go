@@ -1,3 +1,6 @@
+// Copyright (C) 2018 JT Olds
+// See LICENSE for copying information.
+
 package eestream
 
 import (
@@ -6,7 +9,7 @@ import (
 	"golang.org/x/crypto/nacl/secretbox"
 )
 
-type SecretboxEncrypter struct {
+type secretboxEncrypter struct {
 	blockSize int
 	key       [32]byte
 }
@@ -19,20 +22,22 @@ func setKey(dst *[32]byte, key []byte) error {
 	return nil
 }
 
+// NewSecretboxEncrypter returns a Transformer that encrypts the data passing
+// through with key.
 func NewSecretboxEncrypter(key []byte, encryptedBlockSize int) (
-	*SecretboxEncrypter, error) {
+	Transformer, error) {
 	if encryptedBlockSize <= secretbox.Overhead {
 		return nil, Error.New("block size too small")
 	}
-	rv := &SecretboxEncrypter{blockSize: encryptedBlockSize - secretbox.Overhead}
+	rv := &secretboxEncrypter{blockSize: encryptedBlockSize - secretbox.Overhead}
 	return rv, setKey(&rv.key, key)
 }
 
-func (s *SecretboxEncrypter) InBlockSize() int {
+func (s *secretboxEncrypter) InBlockSize() int {
 	return s.blockSize
 }
 
-func (s *SecretboxEncrypter) OutBlockSize() int {
+func (s *secretboxEncrypter) OutBlockSize() int {
 	return s.blockSize + secretbox.Overhead
 }
 
@@ -44,34 +49,36 @@ func calcNonce(blockNum int64) *[24]byte {
 	return &nonce
 }
 
-func (s *SecretboxEncrypter) Transform(out, in []byte, blockNum int64) (
+func (s *secretboxEncrypter) Transform(out, in []byte, blockNum int64) (
 	[]byte, error) {
 	return secretbox.Seal(out, in, calcNonce(blockNum), &s.key), nil
 }
 
-type SecretboxDecrypter struct {
+type secretboxDecrypter struct {
 	blockSize int
 	key       [32]byte
 }
 
+// NewSecretboxDecrypter returns a Transformer that decrypts the data passing
+// through with key.
 func NewSecretboxDecrypter(key []byte, encryptedBlockSize int) (
-	*SecretboxDecrypter, error) {
+	Transformer, error) {
 	if encryptedBlockSize <= secretbox.Overhead {
 		return nil, Error.New("block size too small")
 	}
-	rv := &SecretboxDecrypter{blockSize: encryptedBlockSize - secretbox.Overhead}
+	rv := &secretboxDecrypter{blockSize: encryptedBlockSize - secretbox.Overhead}
 	return rv, setKey(&rv.key, key)
 }
 
-func (s *SecretboxDecrypter) InBlockSize() int {
+func (s *secretboxDecrypter) InBlockSize() int {
 	return s.blockSize + secretbox.Overhead
 }
 
-func (s *SecretboxDecrypter) OutBlockSize() int {
+func (s *secretboxDecrypter) OutBlockSize() int {
 	return s.blockSize
 }
 
-func (s *SecretboxDecrypter) Transform(out, in []byte, blockNum int64) (
+func (s *secretboxDecrypter) Transform(out, in []byte, blockNum int64) (
 	[]byte, error) {
 	rv, success := secretbox.Open(out, in, calcNonce(blockNum), &s.key)
 	if !success {

@@ -1,8 +1,13 @@
+// Copyright (C) 2018 JT Olds
+// See LICENSE for copying information.
+
 package eestream
 
 import (
 	"io"
 	"io/ioutil"
+
+	"github.com/jtolds/eestream/ranger"
 )
 
 type decodedReader struct {
@@ -13,6 +18,9 @@ type decodedReader struct {
 	err    error
 }
 
+// DecodeReaders takes a map of readers and an ErasureScheme returning a
+// combined Reader. The map, 'rs', must be a mapping of erasure piece numbers
+// to erasure piece streams.
 func DecodeReaders(rs map[int]io.Reader, es ErasureScheme) io.Reader {
 	dr := &decodedReader{
 		rs:     rs,
@@ -57,13 +65,17 @@ func (dr *decodedReader) Read(p []byte) (n int, err error) {
 	return n, nil
 }
 
-type decodedRangeReader struct {
+type decodedRanger struct {
 	es     ErasureScheme
-	rrs    map[int]RangeReader
+	rrs    map[int]ranger.Ranger
 	inSize int64
 }
 
-func Decode(rrs map[int]RangeReader, es ErasureScheme) (RangeReader, error) {
+// Decode takes a map of Rangers and an ErasureSchema and returns a combined
+// Ranger. The map, 'rrs', must be a mapping of erasure piece numbers
+// to erasure piece rangers.
+func Decode(rrs map[int]ranger.Ranger, es ErasureScheme) (
+	ranger.Ranger, error) {
 	size := int64(-1)
 	for _, rr := range rrs {
 		if size == -1 {
@@ -76,7 +88,7 @@ func Decode(rrs map[int]RangeReader, es ErasureScheme) (RangeReader, error) {
 		}
 	}
 	if size == -1 {
-		return ByteRangeReader(nil), nil
+		return ranger.ByteRanger(nil), nil
 	}
 	if size%int64(es.EncodedBlockSize()) != 0 {
 		return nil, Error.New("invalid erasure decoder and range reader combo. " +
@@ -85,19 +97,19 @@ func Decode(rrs map[int]RangeReader, es ErasureScheme) (RangeReader, error) {
 	if len(rrs) < es.RequiredCount() {
 		return nil, Error.New("not enough readers to reconstruct data!")
 	}
-	return &decodedRangeReader{
+	return &decodedRanger{
 		es:     es,
 		rrs:    rrs,
 		inSize: size,
 	}, nil
 }
 
-func (dr *decodedRangeReader) Size() int64 {
+func (dr *decodedRanger) Size() int64 {
 	blocks := dr.inSize / int64(dr.es.EncodedBlockSize())
 	return blocks * int64(dr.es.DecodedBlockSize())
 }
 
-func (dr *decodedRangeReader) Range(offset, length int64) io.Reader {
+func (dr *decodedRanger) Range(offset, length int64) io.Reader {
 	firstBlock, blockCount := calcEncompassingBlocks(
 		offset, length, dr.es.DecodedBlockSize())
 
@@ -111,7 +123,7 @@ func (dr *decodedRangeReader) Range(offset, length int64) io.Reader {
 	_, err := io.CopyN(ioutil.Discard, r,
 		offset-firstBlock*int64(dr.es.DecodedBlockSize()))
 	if err != nil {
-		return FatalReader(Error.Wrap(err))
+		return ranger.FatalReader(Error.Wrap(err))
 	}
 	return io.LimitReader(r, length)
 }

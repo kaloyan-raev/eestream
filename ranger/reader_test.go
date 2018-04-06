@@ -1,4 +1,7 @@
-package eestream
+// Copyright (C) 2018 JT Olds
+// See LICENSE for copying information.
+
+package ranger
 
 import (
 	"bytes"
@@ -6,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestByteRangeReader(t *testing.T) {
+func TestByteRanger(t *testing.T) {
 	for _, example := range []struct {
 		data                 string
 		size, offset, length int64
@@ -22,7 +25,7 @@ func TestByteRangeReader(t *testing.T) {
 		{"abcdef", 6, 0, 7, "", true},
 		{"abcdef", 6, -1, 7, "abcde", true},
 	} {
-		r := ByteRangeReader([]byte(example.data))
+		r := ByteRanger([]byte(example.data))
 		if r.Size() != example.size {
 			t.Fatalf("invalid size: %v != %v", r.Size(), example.size)
 		}
@@ -62,9 +65,9 @@ func TestConcatReader(t *testing.T) {
 		{[]string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"},
 			12, 7, 3, "hij"},
 	} {
-		var readers []RangeReader
+		var readers []Ranger
 		for _, data := range example.data {
-			readers = append(readers, ByteRangeReader([]byte(data)))
+			readers = append(readers, ByteRanger([]byte(data)))
 		}
 		r := Concat(readers...)
 		if r.Size() != example.size {
@@ -80,7 +83,7 @@ func TestConcatReader(t *testing.T) {
 	}
 }
 
-func TestSubrangeReader(t *testing.T) {
+func TestSubranger(t *testing.T) {
 	for _, example := range []struct {
 		data             string
 		offset1, length1 int64
@@ -97,7 +100,7 @@ func TestSubrangeReader(t *testing.T) {
 		{"abcdefghijkl", 8, 4, 0, 3, "ijk"},
 		{"abcdefghijkl", 8, 4, 1, 3, "jkl"},
 	} {
-		r, err := Subrange(ByteRangeReader([]byte(example.data)),
+		r, err := Subrange(ByteRanger([]byte(example.data)),
 			example.offset1, example.length1)
 		if err != nil {
 			t.Fatalf("unexpected err: %v", err)

@@ -1,3 +1,6 @@
+// Copyright (C) 2018 JT Olds
+// See LICENSE for copying information.
+
 package eestream
 
 import (
@@ -5,6 +8,8 @@ import (
 	"hash/crc32"
 	"io/ioutil"
 	"testing"
+
+	"github.com/jtolds/eestream/ranger"
 )
 
 func TestCalcEncompassingBlocks(t *testing.T) {
@@ -59,7 +64,7 @@ func TestCalcEncompassingBlocks(t *testing.T) {
 
 func TestCRC(t *testing.T) {
 	const blocks = 3
-	rr, err := AddCRC(ByteRangeReader(bytes.Repeat([]byte{0}, blocks*64)),
+	rr, err := addCRC(ranger.ByteRanger(bytes.Repeat([]byte{0}, blocks*64)),
 		crc32.IEEETable)
 	if err != nil {
 		t.Fatalf("unexpected: %v", err)
@@ -73,7 +78,7 @@ func TestCRC(t *testing.T) {
 		t.Fatalf("unexpected: %v", err)
 	}
 
-	rr, err = CheckCRC(ByteRangeReader(data), crc32.IEEETable)
+	rr, err = checkCRC(ranger.ByteRanger(data), crc32.IEEETable)
 	if err != nil {
 		t.Fatalf("unexpected: %v", err)
 	}
@@ -95,11 +100,11 @@ func TestCRC(t *testing.T) {
 func TestCRCSubranges(t *testing.T) {
 	const blocks = 3
 	data := bytes.Repeat([]byte{0, 1, 2}, blocks*64)
-	internal, err := AddCRC(ByteRangeReader(data), crc32.IEEETable)
+	internal, err := addCRC(ranger.ByteRanger(data), crc32.IEEETable)
 	if err != nil {
 		t.Fatalf("unexpected: %v", err)
 	}
-	external, err := CheckCRC(internal, crc32.IEEETable)
+	external, err := checkCRC(internal, crc32.IEEETable)
 	if err != nil {
 		t.Fatalf("unexpected: %v", err)
 	}

@@ -1,15 +1,22 @@
-package eestream
+// Copyright (C) 2018 JT Olds
+// See LICENSE for copying information.
+
+package ranger
 
 import (
 	"bytes"
 	"io"
 )
 
-type RangeReader interface {
+// A Ranger is a flexible data stream type that allows for more effective
+// pipelining during seeking. A Ranger can return multiple parallel Readers for
+// any subranges.
+type Ranger interface {
 	Size() int64
 	Range(offset, length int64) io.Reader
 }
 
+// FatalReader returns a Reader that always fails with err.
 func FatalReader(err error) io.Reader {
 	return &fatalReader{Err: err}
 }
@@ -22,11 +29,12 @@ func (f *fatalReader) Read(p []byte) (n int, err error) {
 	return 0, f.Err
 }
 
-type ByteRangeReader []byte
+// ByteRanger turns a byte slice into a Ranger
+type ByteRanger []byte
 
-func (b ByteRangeReader) Size() int64 { return int64(len(b)) }
+func (b ByteRanger) Size() int64 { return int64(len(b)) }
 
-func (b ByteRangeReader) Range(offset, length int64) io.Reader {
+func (b ByteRanger) Range(offset, length int64) io.Reader {
 	if offset < 0 {
 		return FatalReader(Error.New("negative offset"))
 	}
@@ -38,8 +46,8 @@ func (b ByteRangeReader) Range(offset, length int64) io.Reader {
 }
 
 type concatReader struct {
-	r1 RangeReader
-	r2 RangeReader
+	r1 Ranger
+	r2 Ranger
 }
 
 func (c *concatReader) Size() int64 {
@@ -61,14 +69,15 @@ func (c *concatReader) Range(offset, length int64) io.Reader {
 		}))
 }
 
-func concat2(r1, r2 RangeReader) RangeReader {
+func concat2(r1, r2 Ranger) Ranger {
 	return &concatReader{r1: r1, r2: r2}
 }
 
-func Concat(r ...RangeReader) RangeReader {
+// Concat concatenates Rangers
+func Concat(r ...Ranger) Ranger {
 	switch len(r) {
 	case 0:
-		return ByteRangeReader(nil)
+		return ByteRanger(nil)
 	case 1:
 		return r[0]
 	case 2:
@@ -84,6 +93,8 @@ type lazyReader struct {
 	r  io.Reader
 }
 
+// LazyReader returns an Reader that doesn't initialize the backing Reader
+// until the first Read.
 func LazyReader(reader func() io.Reader) io.Reader {
 	return &lazyReader{fn: reader}
 }
@@ -97,11 +108,12 @@ func (l *lazyReader) Read(p []byte) (n int, err error) {
 }
 
 type subrange struct {
-	r              RangeReader
+	r              Ranger
 	offset, length int64
 }
 
-func Subrange(data RangeReader, offset, length int64) (RangeReader, error) {
+// Subrange returns a subset of a Ranger.
+func Subrange(data Ranger, offset, length int64) (Ranger, error) {
 	dSize := data.Size()
 	if offset < 0 || offset > dSize {
 		return nil, Error.New("invalid offset")

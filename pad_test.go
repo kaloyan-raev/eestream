@@ -1,3 +1,6 @@
+// Copyright (C) 2018 JT Olds
+// See LICENSE for copying information.
+
 package eestream
 
 import (
@@ -5,6 +8,8 @@ import (
 	"io/ioutil"
 	"strings"
 	"testing"
+
+	"github.com/jtolds/eestream/ranger"
 )
 
 func TestPad(t *testing.T) {
@@ -29,7 +34,7 @@ func TestPad(t *testing.T) {
 		{strings.Repeat("\x00", 16*1024), 32 * 1024, 16 * 1024},
 		{strings.Repeat("\x00", 32*1024+1), 32 * 1024, 32*1024 - 1},
 	} {
-		padded, padding := Pad(ByteRangeReader([]byte(example.data)),
+		padded, padding := Pad(ranger.ByteRanger([]byte(example.data)),
 			example.blockSize)
 		if padding != example.padding {
 			t.Fatalf("invalid padding: %d, %v != %v", examplenum,
