@@ -1,7 +1,7 @@
 package eestream
 
 import (
-	"fmt"
+	"bytes"
 	"io"
 	"io/ioutil"
 )
@@ -39,7 +39,7 @@ func (t *transformedReader) Read(p []byte) (n int, err error) {
 		}
 		t.outbuf, err = t.t.Transform(t.outbuf, t.inbuf, t.blockNum)
 		if err != nil {
-			return 0, err
+			return 0, Error.Wrap(err)
 		}
 		t.blockNum += 1
 	}
@@ -55,10 +55,9 @@ type transformedRangeReader struct {
 	t  Transformer
 }
 
-func Transform(t Transformer, rr RangeReader) (
-	*transformedRangeReader, error) {
+func Transform(rr RangeReader, t Transformer) (RangeReader, error) {
 	if rr.Size()%int64(t.InBlockSize()) != 0 {
-		return nil, fmt.Errorf("invalid transformer and range reader combination." +
+		return nil, Error.New("invalid transformer and range reader combination." +
 			"the range reader size is not a multiple of the block size")
 	}
 	return &transformedRangeReader{rr: rr, t: t}, nil
@@ -92,7 +91,10 @@ func (t *transformedRangeReader) Range(offset, length int64) io.Reader {
 	_, err := io.CopyN(ioutil.Discard, r,
 		offset-firstBlock*int64(t.t.OutBlockSize()))
 	if err != nil {
-		return FatalReader(err)
+		if err == io.EOF {
+			return bytes.NewReader(nil)
+		}
+		return FatalReader(Error.Wrap(err))
 	}
 	return io.LimitReader(r, length)
 }

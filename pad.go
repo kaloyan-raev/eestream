@@ -2,19 +2,30 @@ package eestream
 
 import (
 	"bytes"
-	"fmt"
+	"encoding/binary"
 	"io"
 )
 
-func Pad(data RangeReader, blockSize int) (
-	rr RangeReader, padding int, err error) {
-	if blockSize >= 256 {
-		return nil, 0, fmt.Errorf("blockSize too large")
+const (
+	uint32Size = 4
+)
+
+func Padding(dataLen int64, blockSize int) []byte {
+	amount := dataLen + uint32Size
+	r := amount % int64(blockSize)
+	padding := uint32Size
+	if r > 0 {
+		padding += blockSize - int(r)
 	}
-	r := data.Size() % int64(blockSize)
-	padding = blockSize - int(r)
-	paddingBytes := bytes.Repeat([]byte{byte(padding)}, padding)
-	return Concat(data, ByteRangeReader(paddingBytes)), padding, nil
+	paddingBytes := bytes.Repeat([]byte{0}, padding)
+	binary.BigEndian.PutUint32(paddingBytes[padding-uint32Size:], uint32(padding))
+	return paddingBytes
+}
+
+func Pad(data RangeReader, blockSize int) (
+	rr RangeReader, padding int) {
+	paddingBytes := Padding(data.Size(), blockSize)
+	return Concat(data, ByteRangeReader(paddingBytes)), len(paddingBytes)
 }
 
 func Unpad(data RangeReader, padding int) (RangeReader, error) {
@@ -22,10 +33,32 @@ func Unpad(data RangeReader, padding int) (RangeReader, error) {
 }
 
 func UnpadSlow(data RangeReader) (RangeReader, error) {
-	var p [1]byte
-	_, err := io.ReadFull(data.Range(data.Size()-1, 1), p[:])
+	var p [uint32Size]byte
+	_, err := io.ReadFull(data.Range(data.Size()-uint32Size, uint32Size), p[:])
 	if err != nil {
-		return nil, err
+		return nil, Error.Wrap(err)
 	}
-	return Unpad(data, int(p[0]))
+	return Unpad(data, int(binary.BigEndian.Uint32(p[:])))
+}
+
+func PadReader(data io.Reader, blockSize int) io.Reader {
+	cr := NewCountingReader(data)
+	return io.MultiReader(cr, LazyReader(func() io.Reader {
+		return bytes.NewReader(Padding(cr.N, blockSize))
+	}))
+}
+
+type CountingReader struct {
+	R io.Reader
+	N int64
+}
+
+func NewCountingReader(r io.Reader) *CountingReader {
+	return &CountingReader{R: r}
+}
+
+func (cr *CountingReader) Read(p []byte) (n int, err error) {
+	n, err = cr.R.Read(p)
+	cr.N += int64(n)
+	return n, err
 }

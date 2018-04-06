@@ -2,7 +2,6 @@ package eestream
 
 import (
 	"encoding/binary"
-	"fmt"
 	"hash/crc32"
 )
 
@@ -44,18 +43,18 @@ func (c *CRCChecker) Transform(out, in []byte, blockOffset int64) (
 	bs := c.OutBlockSize()
 	if binary.BigEndian.Uint32(in[bs+8:bs+8+4]) !=
 		crc32.Checksum(in[:bs+8], c.Table) {
-		return nil, fmt.Errorf("crc check mismatch")
+		return nil, Error.New("crc check mismatch")
 	}
 	if binary.BigEndian.Uint64(in[bs:bs+8]) != uint64(blockOffset) {
-		return nil, fmt.Errorf("block offset mismatch")
+		return nil, Error.New("block offset mismatch")
 	}
 	return append(out, in[:bs]...), nil
 }
 
 func AddCRC(data RangeReader, tab *crc32.Table) (RangeReader, error) {
-	return Transform(NewCRCAdder(tab), data)
+	return Transform(data, NewCRCAdder(tab))
 }
 
 func CheckCRC(data RangeReader, tab *crc32.Table) (RangeReader, error) {
-	return Transform(NewCRCChecker(tab), data)
+	return Transform(data, NewCRCChecker(tab))
 }

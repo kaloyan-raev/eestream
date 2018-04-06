@@ -1,7 +1,6 @@
 package eestream
 
 import (
-	"fmt"
 	"io"
 )
 
@@ -28,10 +27,10 @@ type readerAtReader struct {
 
 func (r *readerAtRangeReader) Range(offset, length int64) io.Reader {
 	if offset < 0 {
-		return FatalReader(fmt.Errorf("negative offset"))
+		return FatalReader(Error.New("negative offset"))
 	}
 	if offset+length > r.size {
-		return FatalReader(fmt.Errorf("buffer runoff"))
+		return FatalReader(Error.New("buffer runoff"))
 	}
 	return &readerAtReader{r: r.r, offset: offset, length: length}
 }

@@ -2,7 +2,6 @@ package eestream
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 )
 
@@ -29,10 +28,10 @@ func (b ByteRangeReader) Size() int64 { return int64(len(b)) }
 
 func (b ByteRangeReader) Range(offset, length int64) io.Reader {
 	if offset < 0 {
-		return FatalReader(fmt.Errorf("negative offset"))
+		return FatalReader(Error.New("negative offset"))
 	}
 	if offset+length > int64(len(b)) {
-		return FatalReader(fmt.Errorf("buffer runoff"))
+		return FatalReader(Error.New("buffer runoff"))
 	}
 
 	return bytes.NewReader(b[offset : offset+length])
@@ -105,10 +104,10 @@ type subrange struct {
 func Subrange(data RangeReader, offset, length int64) (RangeReader, error) {
 	dSize := data.Size()
 	if offset < 0 || offset > dSize {
-		return nil, fmt.Errorf("invalid offset")
+		return nil, Error.New("invalid offset")
 	}
 	if length+offset > dSize {
-		return nil, fmt.Errorf("invalid length")
+		return nil, Error.New("invalid length")
 	}
 	return &subrange{r: data, offset: offset, length: length}, nil
 }

@@ -1,128 +1,136 @@
 package eestream
 
 import (
-	"fmt"
 	"io"
 	"io/ioutil"
 	"sync"
 )
 
-type ErasureEncoder interface {
+type ErasureScheme interface {
 	Encode(input []byte, output func(num int, data []byte)) error
-	BlockSize() int
-	OutputSize() int
-	OutputCount() int
+	Decode(out []byte, in map[int][]byte) ([]byte, error)
+	EncodedBlockSize() int
+	DecodedBlockSize() int
+	TotalCount() int
+	RequiredCount() int
 }
 
-func NewErasureEncode(ee ErasureEncoder, rr RangeReader) (
-	*ErasureReader, error) {
-	if rr.Size()%int64(ee.BlockSize()) != 0 {
-		return nil, fmt.Errorf("invalid erasure encoder and range reader combo. " +
+type encodedReader struct {
+	r               io.Reader
+	es              ErasureScheme
+	cv              *sync.Cond
+	inbuf           []byte
+	outbufs         [][]byte
+	piecesRemaining int
+	err             error
+}
+
+func EncodeReader(r io.Reader, es ErasureScheme) []io.Reader {
+	er := &encodedReader{
+		r:       r,
+		es:      es,
+		cv:      sync.NewCond(&sync.Mutex{}),
+		inbuf:   make([]byte, es.DecodedBlockSize()),
+		outbufs: make([][]byte, es.TotalCount()),
+	}
+	readers := make([]io.Reader, 0, es.TotalCount())
+	for i := 0; i < es.TotalCount(); i++ {
+		er.outbufs[i] = make([]byte, 0, es.EncodedBlockSize())
+		readers = append(readers, &encodedPiece{
+			er: er,
+			i:  i,
+		})
+	}
+	return readers
+}
+
+func (er *encodedReader) wait() error {
+	if er.err != nil {
+		return er.err
+	}
+	if er.piecesRemaining > 0 {
+		er.cv.Wait()
+		return er.err
+	}
+
+	defer er.cv.Broadcast()
+	_, err := io.ReadFull(er.r, er.inbuf)
+	if err != nil {
+		er.err = err
+		return err
+	}
+	err = er.es.Encode(er.inbuf, func(num int, data []byte) {
+		er.outbufs[num] = append(er.outbufs[num], data...)
+	})
+	if err != nil {
+		er.err = err
+		return err
+	}
+	er.piecesRemaining += er.es.TotalCount()
+	return nil
+}
+
+type encodedPiece struct {
+	er *encodedReader
+	i  int
+}
+
+func (ep *encodedPiece) Read(p []byte) (n int, err error) {
+	ep.er.cv.L.Lock()
+	defer ep.er.cv.L.Unlock()
+
+	outbufs, i := ep.er.outbufs, ep.i
+	if len(outbufs[i]) <= 0 {
+		err := ep.er.wait()
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	n = copy(p, outbufs[i])
+	copy(outbufs[i], outbufs[i][n:])
+	outbufs[i] = outbufs[i][:len(outbufs[i])-n]
+	if len(outbufs[i]) <= 0 {
+		ep.er.piecesRemaining -= 1
+	}
+	return n, nil
+}
+
+type EncodedRangeReader struct {
+	es ErasureScheme
+	rr RangeReader
+}
+
+func Encode(rr RangeReader, es ErasureScheme) (*EncodedRangeReader, error) {
+	if rr.Size()%int64(es.DecodedBlockSize()) != 0 {
+		return nil, Error.New("invalid erasure encoder and range reader combo. " +
 			"range reader size must be a multiple of erasure encoder block size")
 	}
-	return &ErasureReader{
+	return &EncodedRangeReader{
+		es: es,
 		rr: rr,
-		ee: ee,
 	}, nil
 }
 
-type ErasureReader struct {
-	rr RangeReader
-	ee ErasureEncoder
+func (er *EncodedRangeReader) OutputSize() int64 {
+	blocks := er.rr.Size() / int64(er.es.DecodedBlockSize())
+	return blocks * int64(er.es.EncodedBlockSize())
 }
 
-func (er *ErasureReader) OutputSize() int64 {
-	blocks := er.rr.Size() / int64(er.ee.BlockSize())
-	return blocks * int64(er.ee.OutputSize())
-}
+func (er *EncodedRangeReader) Range(offset, length int64) ([]io.Reader, error) {
+	firstBlock, blockCount := calcEncompassingBlocks(
+		offset, length, er.es.EncodedBlockSize())
+	readers := EncodeReader(er.rr.Range(
+		firstBlock*int64(er.es.DecodedBlockSize()),
+		blockCount*int64(er.es.DecodedBlockSize())), er.es)
 
-func (er *ErasureReader) Range(offset, length int64) ([]io.Reader, error) {
-	preBlockSize := er.ee.BlockSize()
-	postBlockSize := er.ee.OutputSize()
-	firstBlock, blockCount := calcEncompassingBlocks(offset, length, postBlockSize)
-	erange := &erasureRange{
-		cv:         sync.NewCond(&sync.Mutex{}),
-		firstBlock: firstBlock,
-		blockCount: blockCount,
-		pre:        make([]byte, preBlockSize),
-		post:       make([][]byte, 0, er.ee.OutputCount()),
-		ee:         er.ee,
-		r: er.rr.Range(
-			firstBlock*int64(preBlockSize),
-			blockCount*int64(preBlockSize)),
-	}
-	readers := make([]io.Reader, 0, er.ee.OutputCount())
-	for i := 0; i < er.ee.OutputCount(); i++ {
-		erange.post[i] = make([]byte, 0, postBlockSize)
-		r := &erasurePiece{
-			erange: erange,
-			piece:  i,
-		}
-		_, err := io.CopyN(ioutil.Discard, r, offset-firstBlock*int64(postBlockSize))
+	for i, r := range readers {
+		_, err := io.CopyN(ioutil.Discard, r,
+			offset-firstBlock*int64(er.es.EncodedBlockSize()))
 		if err != nil {
-			return nil, err
+			return nil, Error.Wrap(err)
 		}
-		readers = append(readers, io.LimitReader(r, length))
+		readers[i] = io.LimitReader(r, length)
 	}
 	return readers, nil
-}
-
-type erasureRange struct {
-	cv            *sync.Cond
-	firstBlock    int64
-	blockCount    int64
-	pre           []byte
-	post          [][]byte
-	ee            ErasureEncoder
-	r             io.Reader
-	err           error
-	dataRemaining int
-}
-
-type erasurePiece struct {
-	erange *erasureRange
-	piece  int
-}
-
-func (ep *erasurePiece) Read(p []byte) (n int, err error) {
-	ep.erange.cv.L.Lock()
-	defer ep.erange.cv.L.Unlock()
-
-	post, i := ep.erange.post, ep.piece
-	if len(post[i]) <= 0 {
-		if ep.erange.err != nil {
-			return 0, ep.erange.err
-		}
-		if ep.erange.blockCount <= 0 {
-			return 0, io.EOF
-		}
-		if ep.erange.dataRemaining > 0 {
-			ep.erange.cv.Wait()
-		} else {
-			_, err = io.ReadFull(ep.erange.r, ep.erange.pre)
-			if err != nil {
-				ep.erange.err = err
-				return 0, err
-			}
-			err = ep.erange.ee.Encode(ep.erange.pre, func(piece int, data []byte) {
-				post[piece] = append(post[piece], data...)
-			})
-			if err != nil {
-				ep.erange.err = err
-				return 0, err
-			}
-			ep.erange.firstBlock += 1
-			ep.erange.blockCount -= 1
-			ep.erange.dataRemaining += ep.erange.ee.OutputCount()
-			ep.erange.cv.Broadcast()
-		}
-	}
-
-	n = copy(p, post[i])
-	copy(post[i], post[i][n:])
-	post[i] = post[i][:len(post[i])-n]
-	if len(post[i]) <= 0 {
-		ep.erange.dataRemaining -= 1
-	}
-	return n, nil
 }
