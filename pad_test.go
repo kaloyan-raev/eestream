@@ -9,7 +9,7 @@ import (
 func TestPad(t *testing.T) {
 	for _, example := range []struct {
 		data      string
-		blockSize int64
+		blockSize int
 		padding   int
 	}{
 		{"abcdef", 24, 24 - 6},

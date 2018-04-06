@@ -6,13 +6,13 @@ import (
 	"io"
 )
 
-func Pad(data RangeReader, blockSize int64) (
+func Pad(data RangeReader, blockSize int) (
 	rr RangeReader, padding int, err error) {
 	if blockSize >= 256 {
 		return nil, 0, fmt.Errorf("blockSize too large")
 	}
-	r := data.Size() % blockSize
-	padding = int(blockSize - r)
+	r := data.Size() % int64(blockSize)
+	padding = blockSize - int(r)
 	paddingBytes := bytes.Repeat([]byte{byte(padding)}, padding)
 	return Concat(data, ByteRangeReader(paddingBytes)), padding, nil
 }

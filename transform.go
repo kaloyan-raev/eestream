@@ -7,27 +7,66 @@ import (
 )
 
 type Transformer interface {
-	BlockSize() int
-	BlockOverhead() int
-	Transform(out, in []byte, blockOffset int64) ([]byte, error)
+	InBlockSize() int
+	OutBlockSize() int
+	Transform(out, in []byte, blockNum int64) ([]byte, error)
 }
 
-type transformer struct {
-	t Transformer
-	r RangeReader
+type transformedReader struct {
+	r        io.Reader
+	t        Transformer
+	blockNum int64
+	inbuf    []byte
+	outbuf   []byte
 }
 
-func Transform(t Transformer, r RangeReader) (RangeReader, error) {
-	if r.Size()%int64(t.BlockSize()) != 0 {
+func TransformReader(r io.Reader, t Transformer,
+	startingBlockNum int64) io.Reader {
+	return &transformedReader{
+		r:        r,
+		t:        t,
+		blockNum: startingBlockNum,
+		inbuf:    make([]byte, t.InBlockSize()),
+		outbuf:   make([]byte, 0, t.OutBlockSize()),
+	}
+}
+
+func (t *transformedReader) Read(p []byte) (n int, err error) {
+	if len(t.outbuf) <= 0 {
+		_, err = io.ReadFull(t.r, t.inbuf)
+		if err != nil {
+			return 0, err
+		}
+		t.outbuf, err = t.t.Transform(t.outbuf, t.inbuf, t.blockNum)
+		if err != nil {
+			return 0, err
+		}
+		t.blockNum += 1
+	}
+
+	n = copy(p, t.outbuf)
+	copy(t.outbuf, t.outbuf[n:])
+	t.outbuf = t.outbuf[:len(t.outbuf)-n]
+	return n, nil
+}
+
+type transformedRangeReader struct {
+	rr RangeReader
+	t  Transformer
+}
+
+func Transform(t Transformer, rr RangeReader) (
+	*transformedRangeReader, error) {
+	if rr.Size()%int64(t.InBlockSize()) != 0 {
 		return nil, fmt.Errorf("invalid transformer and range reader combination." +
 			"the range reader size is not a multiple of the block size")
 	}
-	return &transformer{t: t, r: r}, nil
+	return &transformedRangeReader{rr: rr, t: t}, nil
 }
 
-func (t *transformer) Size() int64 {
-	blocks := t.r.Size() / int64(t.t.BlockSize())
-	return int64(blocks) * (int64(t.t.BlockSize()) + int64(t.t.BlockOverhead()))
+func (t *transformedRangeReader) Size() int64 {
+	blocks := t.rr.Size() / int64(t.t.InBlockSize())
+	return blocks * int64(t.t.OutBlockSize())
 }
 
 func calcEncompassingBlocks(offset, length int64, blockSize int) (
@@ -43,55 +82,17 @@ func calcEncompassingBlocks(offset, length int64, blockSize int) (
 	return firstBlock, 1 + lastBlock - firstBlock
 }
 
-func (t *transformer) Range(offset, length int64) io.Reader {
-	preBlockSize := t.t.BlockSize()
-	postBlockSize := preBlockSize + t.t.BlockOverhead()
+func (t *transformedRangeReader) Range(offset, length int64) io.Reader {
 	firstBlock, blockCount := calcEncompassingBlocks(
-		offset, length, postBlockSize)
-	r := &transformReader{
-		firstBlock: firstBlock,
-		blockCount: blockCount,
-		pre:        make([]byte, preBlockSize),
-		post:       make([]byte, 0, postBlockSize),
-		t:          t.t,
-		r: t.r.Range(
-			firstBlock*int64(preBlockSize),
-			blockCount*int64(preBlockSize)),
-	}
-	_, err := io.CopyN(ioutil.Discard, r, offset-firstBlock*int64(postBlockSize))
+		offset, length, t.t.OutBlockSize())
+	r := TransformReader(
+		t.rr.Range(
+			firstBlock*int64(t.t.InBlockSize()),
+			blockCount*int64(t.t.InBlockSize())), t.t, firstBlock)
+	_, err := io.CopyN(ioutil.Discard, r,
+		offset-firstBlock*int64(t.t.OutBlockSize()))
 	if err != nil {
 		return FatalReader(err)
 	}
 	return io.LimitReader(r, length)
-}
-
-type transformReader struct {
-	firstBlock int64
-	blockCount int64
-	pre, post  []byte
-	t          Transformer
-	r          io.Reader
-}
-
-func (t *transformReader) Read(p []byte) (n int, err error) {
-	if len(t.post) <= 0 {
-		if t.blockCount <= 0 {
-			return 0, io.EOF
-		}
-		_, err = io.ReadFull(t.r, t.pre)
-		if err != nil {
-			return 0, err
-		}
-		t.post, err = t.t.Transform(t.post, t.pre, t.firstBlock)
-		if err != nil {
-			return 0, err
-		}
-		t.firstBlock += 1
-		t.blockCount -= 1
-	}
-
-	n = copy(p, t.post)
-	copy(t.post, t.post[n:])
-	t.post = t.post[:len(t.post)-n]
-	return n, nil
 }

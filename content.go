@@ -98,9 +98,11 @@ func ServeContent(w http.ResponseWriter, r *http.Request, name string,
 
 		pr, pw := io.Pipe()
 		mw := multipart.NewWriter(pw)
-		w.Header().Set("Content-Type", "multipart/byteranges; boundary="+mw.Boundary())
+		w.Header().Set("Content-Type",
+			"multipart/byteranges; boundary="+mw.Boundary())
 		sendContent = func() io.Reader { return pr }
-		defer pr.Close() // cause writing goroutine to fail and exit if CopyN doesn't finish.
+		// cause writing goroutine to fail and exit if CopyN doesn't finish.
+		defer pr.Close()
 		go func() {
 			for _, ra := range ranges {
 				part, err := mw.CreatePart(ra.mimeHeader(ctype, size))
@@ -287,7 +289,8 @@ func checkIfModifiedSince(r *http.Request, modtime time.Time) condResult {
 	return condTrue
 }
 
-func checkIfRange(w http.ResponseWriter, r *http.Request, modtime time.Time) condResult {
+func checkIfRange(w http.ResponseWriter, r *http.Request, modtime time.Time) (
+	rv condResult) {
 	if r.Method != "GET" && r.Method != "HEAD" {
 		return condNone
 	}
@@ -385,7 +388,8 @@ func (r httpRange) contentRange(size int64) string {
 	return fmt.Sprintf("bytes %d-%d/%d", r.start, r.start+r.length-1, size)
 }
 
-func (r httpRange) mimeHeader(contentType string, size int64) textproto.MIMEHeader {
+func (r httpRange) mimeHeader(contentType string, size int64) (
+	rv textproto.MIMEHeader) {
 	return textproto.MIMEHeader{
 		"Content-Range": {r.contentRange(size)},
 		"Content-Type":  {contentType},
@@ -472,7 +476,8 @@ func (w *countingWriter) Write(p []byte) (n int, err error) {
 
 // rangesMIMESize returns the number of bytes it takes to encode the
 // provided ranges as a multipart response.
-func rangesMIMESize(ranges []httpRange, contentType string, contentSize int64) (encSize int64) {
+func rangesMIMESize(ranges []httpRange, contentType string, contentSize int64) (
+	encSize int64) {
 	var w countingWriter
 	mw := multipart.NewWriter(&w)
 	for _, ra := range ranges {

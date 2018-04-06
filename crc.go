@@ -10,8 +10,12 @@ type CRCAdder struct {
 	Table *crc32.Table
 }
 
-func (c *CRCAdder) BlockSize() int     { return 64 }
-func (c *CRCAdder) BlockOverhead() int { return 4 + 8 }
+func NewCRCAdder(t *crc32.Table) *CRCAdder {
+	return &CRCAdder{Table: t}
+}
+
+func (c *CRCAdder) InBlockSize() int  { return 64 }
+func (c *CRCAdder) OutBlockSize() int { return 64 + 4 + 8 }
 
 func (c *CRCAdder) Transform(out, in []byte, blockOffset int64) (
 	[]byte, error) {
@@ -28,12 +32,16 @@ type CRCChecker struct {
 	Table *crc32.Table
 }
 
-func (c *CRCChecker) BlockSize() int     { return 64 + 4 + 8 }
-func (c *CRCChecker) BlockOverhead() int { return -(4 + 8) }
+func NewCRCChecker(t *crc32.Table) *CRCChecker {
+	return &CRCChecker{Table: t}
+}
+
+func (c *CRCChecker) InBlockSize() int  { return 64 + 4 + 8 }
+func (c *CRCChecker) OutBlockSize() int { return 64 }
 
 func (c *CRCChecker) Transform(out, in []byte, blockOffset int64) (
 	[]byte, error) {
-	bs := c.BlockSize() + c.BlockOverhead()
+	bs := c.OutBlockSize()
 	if binary.BigEndian.Uint32(in[bs+8:bs+8+4]) !=
 		crc32.Checksum(in[:bs+8], c.Table) {
 		return nil, fmt.Errorf("crc check mismatch")
@@ -45,9 +53,9 @@ func (c *CRCChecker) Transform(out, in []byte, blockOffset int64) (
 }
 
 func AddCRC(data RangeReader, tab *crc32.Table) (RangeReader, error) {
-	return Transform(&CRCAdder{Table: tab}, data)
+	return Transform(NewCRCAdder(tab), data)
 }
 
 func CheckCRC(data RangeReader, tab *crc32.Table) (RangeReader, error) {
-	return Transform(&CRCChecker{Table: tab}, data)
+	return Transform(NewCRCChecker(tab), data)
 }
